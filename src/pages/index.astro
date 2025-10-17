@@ -1,21 +1,39 @@
 ---
-import PlotFigure from "../components/PlotFigure.astro";
 import Layout from "../layouts/Layout.astro";
-import * as Plot from "@observablehq/plot";
-import penguins from "../assets/penguins.json";
 ---
 
 <Layout>
-  <h1 class="text-2xl">Test Astro et Plot (Observablehq)</h1>
-  <PlotFigure
-    options={{
-      marks: [
-        Plot.dot(penguins, {
-          x: "culmen_length_mm",
-          y: "culmen_depth_mm",
-          stroke: "species",
-        }),
-      ],
-    }}
-  />
+  <main class="min-h-screen bg-transparent py-16 px-6">
+    <div class="max-w-5xl mx-auto space-y-10">
+      <header class="text-center space-y-3">
+        <h1
+          class="text-4xl sm:text-5xl text-center mb-2 bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent font-bold"
+        >
+          TP 7 - Utilisation de cartes
+        </h1>
+      </header>
+
+      <section class="flex justify-center">
+        <a
+          href="/geojson"
+          class="inline-flex items-center gap-2 rounded-xl px-5 py-3 font-medium text-white bg-violet-600 hover:bg-violet-700 shadow-lg shadow-violet-600/20 transition-colors"
+        >
+          Accéder à la page GeoJSON
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="1.5"
+            stroke="currentColor"
+            class="w-5 h-5"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M13.5 4.5L21 12l-7.5 7.5M21 12H3"></path>
+          </svg>
+        </a>
+      </section>
+    </div>
+  </main>
 </Layout>
