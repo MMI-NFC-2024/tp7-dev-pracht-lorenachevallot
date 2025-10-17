@@ -1,0 +1,268 @@
+﻿---
+import Layout from "../layouts/Layout.astro";
+import departements from "../assets/departementsGeoJSON.json";
+import populationMainData from "../assets/detail_population.json";
+
+// Normalize keys to ASCII-friendly fields (handle corrupted encodings)
+const populationMainRaw = populationMainData as any[];
+const populationMain = populationMainRaw.map((d) => ({
+  ...d,
+  Periode: d["P\u00E9riode"] ?? d["P\u01F8riode"] ?? d["P\uFFFDriode"] ?? d["P\uFFFD\uFFFDriode"] ?? d.Periode,
+  Age: d["\u00C2ge"] ?? d["\u00C2ge"] ?? d["\uFFFD'ge"] ?? d["\uFFFD\uFFFD'ge"] ?? d.Age,
+  Geographie: d["G\u00E9ographie"] ?? d["G\u01F8ographie"] ?? d["G\uFFFD\uFFFDographie"] ?? d.Geographie,
+}));
+
+const listePeriode = [...new Set(populationMain.map((d) => d.Periode))].sort((a, b) => b - a);
+const listeSexes = [...new Set(populationMain.map((d) => d["Sexe"]))];
+const listeAges = [...new Set(populationMain.map((d) => d.Age))];
+
+const getColor = (value: number) => {
+  if (!value) return "rgb(245, 245, 245)";
+  if (value < 20000) return "rgb(240, 249, 255)";
+  if (value < 40000) return "rgb(224, 242, 254)";
+  if (value < 70000) return "rgb(186, 230, 253)";
+  if (value < 100000) return "rgb(125, 211, 252)";
+  if (value < 140000) return "rgb(56, 189, 248)";
+  if (value < 180000) return "rgb(14, 165, 233)";
+  return "rgb(2, 132, 199)";
+};
+
+const coords = departements.features.flatMap((f: any) => {
+  const g = f.geometry;
+  return !g ? [] : g.type === "Polygon" ? g.coordinates.flat() : g.coordinates.flat(2);
+}) as [number, number][];
+
+const bounds = coords.reduce(
+  (b, [lon, lat]) => ({
+    minLon: Math.min(b.minLon, lon),
+    maxLon: Math.max(b.maxLon, lon),
+    minLat: Math.min(b.minLat, lat),
+    maxLat: Math.max(b.maxLat, lat),
+  }),
+  { minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity }
+);
+
+const [width, height] = [600, 620];
+const project = ([lon, lat]: [number, number]) =>
+  `${(((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon || 1)) * width).toFixed(2)} ${(
+    height - ((lat - bounds.minLat) / (bounds.maxLat - bounds.minLat || 1)) * height
+  ).toFixed(2)}`;
+
+const toPath = (g: any) =>
+  !g
+    ? ""
+    : (g.type === "Polygon" ? [g.coordinates] : g.coordinates)
+        .map((p: any) =>
+          p
+            .map((r: any) =>
+              r.length
+                ? `${r.map((pt: any, i: number) => `${i ? "L" : "M"}${project(pt)}`).join(" ")} Z`
+                : ""
+            )
+            .join(" ")
+        )
+        .join(" ");
+
+const population = new Map(
+  populationMain
+    .filter((d) => d.Periode === listePeriode[0] && d["Sexe"] === "Total" && d.Age === listeAges[0])
+    .map((d) => [d.Geographie, d.Valeur ?? 0])
+);
+
+const svgPaths = departements.features
+  .map((f: any) => {
+    const name = f.properties?.nom ?? "Departement";
+    const value = population.get(name) ?? 0;
+    const path = toPath(f.geometry);
+    return path
+      ? `<path d="${path}" fill="${getColor(value)}" stroke="#1e293b" stroke-width="0.8"><title>${name} : ${
+          value ? value.toLocaleString("fr-FR") : "Non disponible"
+        } habitants</title></path>`
+      : "";
+  })
+  .join("");
+
+const serverSvg = `<svg viewBox="0 0 ${width} ${height}" role="img" xmlns="http://www.w3.org/2000/svg"><defs><style>.dept-path{transition:opacity .2s}.dept-path:hover{opacity:.85;stroke-width:1.2}</style></defs><rect width="${width}" height="${height}" fill="#ffffff" rx="16"/>${svgPaths}</svg>`;
+
+const legendItems = [
+  { color: "rgb(240, 249, 255)", label: "&lt; 20k" },
+  { color: "rgb(186, 230, 253)", label: "40k-70k" },
+  { color: "rgb(56, 189, 248)", label: "100k-140k" },
+  { color: "rgb(2, 132, 199)", label: "&gt; 180k" },
+];
+---
+
+<Layout>
+  <style>
+    :global([aria-label*="tip"]),
+    :global(.plot-tip) {
+      color: #111 !important;
+      background: #fff !important;
+      border: 1px solid #333 !important;
+    }
+  </style>
+
+  <main class="min-h-screen bg-transparent py-16 px-6">
+    <div class="max-w-5xl mx-auto space-y-10">
+      <header class="text-center space-y-3">
+        <h1 class="text-4xl sm:text-5xl text-center mb-2 bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent font-bold">TP GeoJSON / Plot</h1>
+        <p class="text-slate-600">
+          Carte statique (serveur) et carte interactive (client) avec filtres dynamiques.
+        </p>
+      </header>
+
+      <section class="space-y-4">
+        <h2 class="text-xl font-semibold text-slate-800">Carte statique (serveur)</h2>
+        <p class="text-slate-600">Annee {listePeriode[0]}, Total, {listeAges[0]}</p>
+        <div class="rounded-2xl border border-violet-100 bg-white/90 backdrop-blur p-6 shadow-lg">
+          <div set:html={serverSvg} class="flex justify-center" />
+          <div class="mt-4 pt-4 border-t border-slate-200">
+            <p class="text-sm text-slate-600 text-center mb-3 font-medium">Echelle de population</p>
+            <div class="flex items-center justify-between gap-2 w-full max-w-[600px] mx-auto">
+              {
+                legendItems.map(({ color, label }) => (
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-8 h-8 rounded" style={`background: ${color}; border: 1px solid #e5e7eb;`} />
+                    <span class="text-xs text-slate-700" set:html={label} />
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="space-y-6">
+        <h2 class="text-2xl font-semibold text-center text-slate-800">Carte interactive (client)</h2>
+        <div class="flex flex-wrap gap-4 justify-center items-center">
+          {
+            [
+              { id: "periode", label: "Annee", list: listePeriode },
+              { id: "sex-filter", label: "Sexe", list: listeSexes },
+              { id: "age-filter", label: "Age", list: listeAges },
+            ].map(({ id, label, list }) => (
+              <label class="flex items-center gap-2 text-slate-700">
+                <span class="font-medium">{label} :</span>
+                <select
+                  id={id}
+                  class="bg-white border border-slate-300 text-slate-800 rounded-lg px-3 py-2 transition-all duration-200 hover:border-violet-400 hover:shadow-[0_0_0_3px_rgba(139,92,246,0.12)] focus:outline-none focus:border-violet-500 focus:shadow-[0_0_0_3px_rgba(139,92,246,0.2)]"
+                >
+                  {list.map((item, i) => (
+                    <option
+                      value={item}
+                      selected={i === 0 || (id === "sex-filter" && item === "Total")}
+                    >
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))
+          }
+        </div>
+
+        <div id="client-map" class="rounded-2xl border border-violet-100 bg-white/90 backdrop-blur p-6 shadow-lg">
+          <div class="flex justify-center min-h-[620px] items-center">
+            <div class="text-slate-600">Chargement de la carte interactive...</div>
+          </div>
+          <div class="mt-4 pt-4 border-t border-slate-200">
+            <p class="text-sm text-slate-600 text-center mb-3 font-medium">Echelle de population</p>
+            <div class="flex items-center justify-between gap-2 w-full max-w-[600px] mx-auto">
+              {
+                legendItems.map(({ color, label }) => (
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-8 h-8 rounded" style={`background: ${color}; border: 1px solid #e5e7eb;`} />
+                    <span class="text-xs text-slate-700" set:html={label} />
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" define:vars={{ populationMain, departements, listeAges }}>
+    (async () => {
+      if (document.readyState === "loading") {
+        await new Promise((res) => document.addEventListener("DOMContentLoaded", res, { once: true }));
+      }
+
+      const els = {
+        container: document.getElementById("client-map"),
+        year: document.getElementById("periode"),
+        sex: document.getElementById("sex-filter"),
+        age: document.getElementById("age-filter"),
+      };
+      if (!els.container || !els.year || !els.sex || !els.age) return console.error("Elements DOM introuvables.");
+
+      try {
+        const Plot = await import("https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm");
+        const getColor = (v) =>
+          !v
+            ? "rgb(245,245,245)"
+            : v < 20000
+            ? "rgb(240,249,255)"
+            : v < 40000
+            ? "rgb(224,242,254)"
+            : v < 70000
+            ? "rgb(186,230,253)"
+            : v < 100000
+            ? "rgb(125,211,252)"
+            : v < 140000
+            ? "rgb(56,189,248)"
+            : v < 180000
+            ? "rgb(14,165,233)"
+            : "rgb(2,132,199)";
+
+        const findPop = (name, year, sex, age) =>
+          populationMain.find(
+            (i) => i["Geographie"] === name && Number(i["Periode"]) === Number(year) && i["Sexe"] === sex && i["Age"] === age
+          );
+
+        const render = () => {
+          try {
+            const [year, sex, age] = [
+              (els.year).value,
+              (els.sex).value,
+              (els.age).value,
+            ];
+            const plot = Plot.plot({
+              projection: { type: "mercator", domain: departements },
+              marks: [
+                Plot.geo(departements, {
+                  fill: (f) => getColor(findPop(f.properties?.nom, year, sex, age)?.Valeur ?? 0),
+                  stroke: "#1f2937",
+                  strokeWidth: 0.6,
+                  title: (f) => {
+                    const name = f.properties?.nom;
+                    const val = findPop(name, year, sex, age)?.Valeur;
+                    return val ? `${name}\n${val.toLocaleString("fr-FR")} habitants` : `${name}\nDonnees indisponibles`;
+                  },
+                  tip: { fill: "white", fillOpacity: 1, stroke: "#333", strokeWidth: 1 },
+                }),
+              ],
+              style: { color: "#111" },
+            });
+            const mapDiv = els.container.querySelector(".flex.justify-center");
+            if (mapDiv) {
+              mapDiv.innerHTML = "";
+              mapDiv.appendChild(plot);
+            }
+          } catch (err) {
+            console.error("Erreur rendu:", err);
+            const mapDiv = els.container.querySelector(".flex.justify-center");
+            if (mapDiv) mapDiv.innerHTML = '<div class="text-red-500">Erreur de rendu</div>';
+          }
+        };
+
+        render();
+        [els.year, els.sex, els.age].forEach((el) => el.addEventListener("change", render));
+      } catch (err) {
+        console.error("Erreur chargement Plot:", err);
+        els.container.innerHTML = '<div class="text-red-500">Impossible de charger Observable Plot</div>';
+      }
+    })();
+  </script>
+</Layout>
